@@ -49,7 +49,7 @@ func main() {
 	}
 }
 
-// HealthCheckHandler provides a simple health-check endpoint.
+/// HealthCheckHandler provides a simple health-check endpoint.
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	response := Response{Message: "DropGox Backend is up and running!"}
 	w.Header().Set("Content-Type", "application/json")
