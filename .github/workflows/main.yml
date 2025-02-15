@@ -6,40 +6,27 @@ on:
       - main
       - develop
     tags:
-      - "v*.*.*"
+      - "v*.*.*"  # Matches version tags like v1.0.0, v2.1.5, etc.
   pull_request:
     branches:
       - main
       - develop
 
-
 jobs:
   build:
-    name: Build DropGox
-    runs-on: debian  # Using self-hosted runner
+    name: Build & Test in Docker
+    runs-on: debian  # Uses self-hosted runner
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.24.0"
-
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Install dependencies
-        run: go mod tidy
-
-      - name: Build application
-        run: go build -o dropgox-backend main.go
+      - name: Build DropGox in Docker
+        run: |
+          docker run --rm -v $(pwd):/app -w /app golang:1.24.0 bash -c "
+            go mod tidy &&
+            go build -o dropgox-backend main.go
+          "
 
   docker:
     name: Build & Push Docker Image
@@ -49,6 +36,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Verify Dockerfile Exists
+        run: |
+          if [ ! -f Dockerfile ]; then
+            echo "ERROR: Dockerfile is missing! Add it to the root of your repository."
+            exit 1
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -63,7 +57,7 @@ jobs:
         id: vars
         run: |
           if [[ $GITHUB_REF == refs/tags/v* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}  # Extracts the tag name
+            VERSION=${GITHUB_REF#refs/tags/}
           elif [[ $GITHUB_REF == refs/heads/main ]]; then
             VERSION="latest"
           else
