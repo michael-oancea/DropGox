@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"github.com/michael-oancea/DropGox/auth"
+	"github.com/michael-oancea/DropGox/utils/auth"
 	"github.com/gorilla/mux"
 )
 
