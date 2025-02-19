@@ -9,12 +9,21 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"github.com/michael-oancea/DropGox/utils"
+	"time"
+
 	"github.com/gorilla/mux"
+	"github.com/michael-oancea/DropGox/utils/auth"
 )
 
 type Response struct {
 	Message string `json:"message"`
+}
+
+// FileMeta represents basic metadata about a file.
+type FileMeta struct {
+	Name    string    `json:"name"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
 }
 
 func main() {
@@ -30,14 +39,17 @@ func main() {
 
 	router := mux.NewRouter()
 
-	// Health-check endpoint doesn't require authentication.
+	// Public endpoint: health-check.
 	router.HandleFunc("/health", HealthCheckHandler).Methods("GET")
 
-	// Secure file endpoints using the Keycloak middleware.
+	// Secure endpoints using Keycloak middleware.
 	secure := router.PathPrefix("/").Subrouter()
 	secure.Use(auth.KeycloakMiddleware)
 	secure.HandleFunc("/upload", UploadHandler(storageDir)).Methods("POST")
 	secure.HandleFunc("/download/{filename}", DownloadHandler(storageDir)).Methods("GET")
+	secure.HandleFunc("/delete/{filename}", DeleteHandler(storageDir)).Methods("DELETE")
+	secure.HandleFunc("/rename/{oldName}", RenameHandler(storageDir)).Methods("PUT")
+	secure.HandleFunc("/metadata/{filename}", MetadataHandler(storageDir)).Methods("GET")
 
 	addr := ":" + port
 	log.Printf("DropGox Backend is running on port %s...\n", port)
@@ -54,6 +66,7 @@ func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 func UploadHandler(storageDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Limit upload size to 10 MB.
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
 			http.Error(w, "File too big or malformed form data", http.StatusBadRequest)
@@ -95,5 +108,63 @@ func DownloadHandler(storageDir string) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 		http.ServeFile(w, r, filePath)
+	}
+}
+
+func DeleteHandler(storageDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		filename := vars["filename"]
+		filePath := filepath.Join(storageDir, filename)
+		if err := os.Remove(filePath); err != nil {
+			http.Error(w, "Error deleting file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Response{Message: "File deleted successfully"})
+	}
+}
+
+func RenameHandler(storageDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		oldName := vars["oldName"]
+		oldPath := filepath.Join(storageDir, oldName)
+
+		// Expect the new filename to be provided as a query parameter, e.g., ?newName=newfilename.txt
+		newName := r.URL.Query().Get("newName")
+		if newName == "" {
+			http.Error(w, "New file name not provided", http.StatusBadRequest)
+			return
+		}
+		newPath := filepath.Join(storageDir, newName)
+
+		if err := os.Rename(oldPath, newPath); err != nil {
+			http.Error(w, "Error renaming file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Response{Message: "File renamed successfully"})
+	}
+}
+
+func MetadataHandler(storageDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		filename := vars["filename"]
+		filePath := filepath.Join(storageDir, filename)
+		info, err := os.Stat(filePath)
+		if err != nil {
+			http.Error(w, "Error retrieving file metadata: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		meta := FileMeta{
+			Name:    info.Name(),
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(meta)
 	}
 }
