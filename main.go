@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/michael-oancea/DropGox/utils/auth"
+	"github.com/michael-oancea/DropGox/utils"
 )
 
 type Response struct {
